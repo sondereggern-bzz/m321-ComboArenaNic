@@ -19,12 +19,19 @@ def main():
 
     print (f'Clowder service started on {CLOWDERHOST}:{CLOWDERPORT}')
     print('Press Ctrl+C to stop')
-    print('Start all bots now.Test arena will start in 10 seconds')
-    sleep(10)
+    print('Start all bots now. Test arena will start every 10 seconds')
 
-    arena_serivce = threading.Thread(target=run_arena)
-    arena_serivce.start()
-    arena_serivce.join()
+    try:
+        while True:
+            sleep(10)
+            print('Starting the arena')
+            arena_serivce = threading.Thread(target=run_arena)
+            arena_serivce.start()
+            arena_serivce.join()
+    except KeyboardInterrupt:
+        print('Stopping the arena')
+        timer_runs.clear()
+        clowder_service.join()
 
 def run_clowder(timer_runs):
     """
