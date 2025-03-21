@@ -175,8 +175,9 @@ class Arena:
         :param cardname: the name of the card
         :return: True if the play is legal, False otherwise
         """
-        if cardname in bot.hand:
-            return True
+        for card in bot.hand:
+            if card.card_type.name == cardname:
+                return True
         return False
 
     def _remove_card(self, cardname) -> None:

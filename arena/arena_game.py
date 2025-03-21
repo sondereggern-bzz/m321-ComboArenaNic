@@ -15,7 +15,7 @@ CLOWDERHOST='127.0.0.1'
 CLOWDERPORT=65432
 LOGPATH='./logs'
 
-def main():
+def arena():
     """
     runs the arena for the kitten bots
     :return:

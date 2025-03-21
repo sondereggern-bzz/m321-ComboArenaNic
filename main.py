@@ -2,7 +2,8 @@
 import threading
 from time import sleep
 
-from arena.arena_test import arena
+# from arena.arena_test import arena  # Testing the communication without the actual game
+from arena.arena_game import arena  # Testing the actual game, you need at least 2 bots
 from clowder.clowder_service import clowder
 
 CLOWDERHOST = '127.0.0.1'
