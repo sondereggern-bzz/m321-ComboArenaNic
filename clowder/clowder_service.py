@@ -49,6 +49,12 @@ def clowder():
 
 
 def process_action(message, kittens):
+    """
+    Process the action
+    :param message:
+    :param kittens:
+    :return:
+    """
     print(message.event)
     if message.event == 'READ':
         action = message.request['action']
