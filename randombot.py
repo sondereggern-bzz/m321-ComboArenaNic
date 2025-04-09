@@ -7,8 +7,6 @@ import traceback
 import socket
 import typing
 
-
-
 CLOWDERHOST = '127.0.0.1'
 CLOWDERPORT = 65432
 
@@ -28,16 +26,14 @@ def get_my_ip():
 
 IPAddr = get_my_ip()
 
-
-
 """ Provides the Message class for the server and client classes to inherit from. """
-
 
 
 class Message:
     """
     constructor for super-class
     """
+
     def __init__(self, selector, socket, ipaddr):
         self._selector = selector
         self._socket = socket
@@ -276,77 +272,6 @@ class Message:
         self._response = value
 
 
-class ServerMessage(Message):
-    """
-    Class for the message from the server
-    """
-    def __init__(self, selector, socket, ipaddr):
-        """
-        constructor for the ServerMessage class
-        """
-        super().__init__(selector, socket, ipaddr)
-        self._response = None
-        self._response_created = False
-
-    def _process_read(self):
-        """
-        process read-event
-        :return:
-        """
-        self._process_headers()
-
-        if self._jsonheader:
-            if self._request is None:
-                self._process_request()
-
-    def _process_request(self):
-        """
-        process the request
-        :return:
-        """
-        content_len = self._jsonheader['content-length']
-        if not len(self._recv_buffer) >= content_len:
-            return
-        data = self._recv_buffer[:content_len]
-        self._recv_buffer = self._recv_buffer[content_len:]
-        if self._jsonheader['content-type'] == 'text/json':
-            encoding = self._jsonheader['content-encoding']
-            self._request = json_decode(data, encoding)
-            print(f'Received request {self._request!r} from {self._ipaddr}')
-        else:
-            self._request = data
-            print(
-                f"Received {self._jsonheader['content-type']} "
-                f'request from {self._ipaddr}'
-            )
-
-    def _process_write(self):
-        """
-        process the write-event
-        :return:
-        """
-        self._event = 'WRITE'
-        if self._request:
-            if not self._response_created:
-                self._create_response()
-
-        self._write()
-
-    def _create_response(self):
-        """
-        creates the response to the client
-        :return:
-        """
-        if self._request['action'] == 'query':
-            data = self._create_response_json_content()
-        else:
-            data = self._create_response_text_content()
-        output = self._create_message(**data)
-        self.response_created = True
-        self._send_buffer += output
-
-
-
 def json_encode(obj, encoding):
     """
     encodes the object as json
@@ -372,11 +297,87 @@ def json_decode(json_bytes, encoding):
     return obj
 
 
+def main():
+    bot = TemplateBot("TemplateBot")
+    item = {"action": "MEOW", "ip": IPAddr, "name": "random_cat", "type": "bot"}
+
+    my_port = send_request(item)  # Captures the returned port
+    if my_port is None:
+        print("Error: Port was not successfully received.")
+        return
+
+    print(f'myport: {my_port}')
+    open_port(bot, my_port)  # my_port is passed directly
+
+
+def process_response(action, message):
+    if action['action'] == 'MEOW':
+        if hasattr(message, 'response') and isinstance(message.response, bytes):
+            my_port = int(message.response.decode('utf-8').strip())
+            return my_port
+        else:
+            print("Error: Response data is missing or invalid.")
+            return None
+
+    # register the bot with the clowder => you get a port number
+    # open a socket with the port number
+    # listen for incoming connections from the arena
+    # analyse the incoming connections
+    # call the relevant bot method depending on the action
+    # send the response back to the arena
+
+
+def send_request(action):
+    sel = selectors.DefaultSelector()
+    request = create_request(action)
+    start_connection(sel, CLOWDERHOST, CLOWDERPORT, request)
+
+    try:
+        while True:
+            events = sel.select()
+            for key, mask in events:
+                message = key.data
+                try:
+                    message.process_events(mask)
+                except Exception:
+                    print(f'{traceback.format_exc()}')
+
+            if not sel.get_map():  # Exit loop when all sockets are closed
+                break
+    except KeyboardInterrupt:
+        print('Caught keyboard interrupt, exiting')
+    finally:
+        sel.close()
+
+    return process_response(action, message)
+
+
+def create_request(action_item):
+    return dict(
+        type='text/json',
+        encoding='utf-8',
+        content=action_item
+    )
+
+
+def start_connection(sel, host, port, request):
+    addr = (host, port)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setblocking(False)
+
+    # Verify the connection status
+    result = sock.connect_ex(addr)
+
+    events = selectors.EVENT_READ | selectors.EVENT_WRITE
+    message = ClientMessage(sel, sock, addr, request)
+    sel.register(sock, events, data=message)
+
 
 class ClientMessage(Message):
     """
     constructor for ClientMessage
     """
+
     def __init__(self, selector, socket, ipaddr, request):
         """
         constructor for the ClientMessage class
@@ -412,8 +413,6 @@ class ClientMessage(Message):
         """
         content = self._response
         print(f'Got response: {content!r}')
-
-
 
     def _process_write(self):
         """
@@ -480,6 +479,154 @@ class ClientMessage(Message):
             self._process_response_binary_content()
         # Close when response has been processed
         self._close()
+
+
+def open_port(bot, myport):
+    if not isinstance(myport, int) or myport <= 0:
+        print("Error: Invalid port value. Cannot open socket.")
+        return  # Avoid continuing with invalid data
+
+    sel = selectors.DefaultSelector()
+
+    lsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    lsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        lsock.bind((IPAddr, myport))
+    except Exception as e:
+        print(f"Error: Failed to bind socket on port {myport}. {e}")
+        return
+
+    lsock.listen()
+    print(f'Listening on {(IPAddr, myport)}')
+    lsock.setblocking(False)
+    sel.register(lsock, selectors.EVENT_READ, data=None)
+
+    try:
+        while True:
+            events = sel.select(timeout=None)
+            for key, mask in events:
+                if key.data is None:
+                    accept_wrapper(sel, key.fileobj)
+                else:
+                    message = key.data
+                    try:
+                        message.process_events(mask)
+                        response = bot.request(message.request)
+                        message.response = response
+                        message.set_selector_events_mask('w')
+                    except Exception:
+                        print(
+                            f'Main: Error: Exception for {message.ipaddr}:\n'
+                            f'{traceback.format_exc()}'
+                        )
+                        message._close()
+    except KeyboardInterrupt:
+        print('Caught keyboard interrupt, exiting')
+    finally:
+        sel.close()
+
+
+def process_action(message, services):
+    """
+    process the action from the client
+    :param message: the message object
+    :param services: the services object
+    """
+
+    if message.event == 'READ':
+        action = message.request['action']
+        # TODO call the methods on the Services-object depending on the action
+        if action == 'register':
+            message.response = services.register(message.request['type'], message.request['ip'],
+                                                 message.request['port'])
+        elif action == 'heartbeat':
+            message.response = services.heartbeat(message.request['uuid'])
+        elif action == 'query':
+            message.response = services.query(message.request['type'])
+
+        message.set_selector_events_mask('w')
+
+
+def accept_wrapper(sel, sock):
+    conn, addr = sock.accept()
+    print(f'Accepted connection from {addr}')
+    conn.setblocking(False)
+    message = ServerMessage(sel, conn, addr)
+    sel.register(conn, selectors.EVENT_READ, data=message)
+
+
+class ServerMessage(Message):
+    """
+    Class for the message from the server
+    """
+
+    def __init__(self, selector, socket, ipaddr):
+        """
+        constructor for the ServerMessage class
+        """
+        super().__init__(selector, socket, ipaddr)
+        self._response = None
+        self._response_created = False
+
+    def _process_read(self):
+        """
+        process read-event
+        :return:
+        """
+        self._process_headers()
+
+        if self._jsonheader:
+            if self._request is None:
+                self._process_request()
+
+    def _process_request(self):
+        """
+        process the request
+        :return:
+        """
+        content_len = self._jsonheader['content-length']
+        if not len(self._recv_buffer) >= content_len:
+            return
+        data = self._recv_buffer[:content_len]
+        self._recv_buffer = self._recv_buffer[content_len:]
+        if self._jsonheader['content-type'] == 'text/json':
+            encoding = self._jsonheader['content-encoding']
+            self._request = json_decode(data, encoding)
+            print(f'Received request {self._request!r} from {self._ipaddr}')
+        else:
+            self._request = data
+            print(
+                f"Received {self._jsonheader['content-type']} "
+                f'request from {self._ipaddr}'
+            )
+
+    def _process_write(self):
+        """
+        process the write-event
+        :return:
+        """
+        self._event = 'WRITE'
+        if self._request:
+            if not self._response_created:
+                self._create_response()
+
+        self._write()
+
+    def _create_response(self):
+        """
+        creates the response to the client
+        :return:
+        """
+        if self._request['action'] == 'query':
+            data = self._create_response_json_content()
+        else:
+            data = self._create_response_text_content()
+        output = self._create_message(**data)
+        self.response_created = True
+        self._send_buffer += output
+
+
+""" Provides the Message class for the server and client classes to inherit from. """
 
 
 class TemplateBot():
@@ -626,165 +773,6 @@ class TemplateKitten:
                 self._card_counts[response] = max(0, self._card_counts[response] - 1)
         return "ACK"
 
-
-def main():
-    bot = TemplateBot("TemplateBot")
-    item = {"action": "MEOW", "ip": IPAddr, "name": "SolidSnake_cat", "type": "bot"}
-
-    my_port = send_request(item)  # Captures the returned port
-    if my_port is None:
-        print("Error: Port was not successfully received.")
-        return
-
-    print(f'myport: {my_port}')
-    open_port(bot, my_port)  # my_port is passed directly
-
-
-def process_response(action, message):
-    if action['action'] == 'MEOW':
-        if hasattr(message, 'response') and isinstance(message.response, bytes):
-            my_port = int(message.response.decode('utf-8').strip())
-            return my_port
-        else:
-            print("Error: Response data is missing or invalid.")
-            return None
-
-
-
-
-    # register the bot with the clowder => you get a port number
-    # open a socket with the port number
-        # listen for incoming connections from the arena
-        # analyse the incoming connections
-        # call the relevant bot method depending on the action
-        # send the response back to the arena
-
-def send_request(action):
-    sel = selectors.DefaultSelector()
-    request = create_request(action)
-    start_connection(sel, CLOWDERHOST, CLOWDERPORT, request)
-
-    try:
-        while True:
-            events = sel.select()
-            for key, mask in events:
-                message = key.data
-                try:
-                    message.process_events(mask)
-                except Exception:
-                    print(f'{traceback.format_exc()}')
-
-            if not sel.get_map():  # Exit loop when all sockets are closed
-                break
-    except KeyboardInterrupt:
-        print('Caught keyboard interrupt, exiting')
-    finally:
-        sel.close()
-
-    return process_response(action, message)
-
-
-
-def create_request(action_item):
-    return dict(
-    type='text/json',
-    encoding='utf-8',
-    content=action_item
-)
-
-
-def start_connection(sel, host, port, request):
-    addr = (host, port)
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setblocking(False)
-
-    # Verify the connection status
-    result = sock.connect_ex(addr)
-   
-
-    events = selectors.EVENT_READ | selectors.EVENT_WRITE
-    message = ClientMessage(sel, sock, addr, request)
-    sel.register(sock, events, data=message)
-
-
-
-
-def open_port(bot, myport):
-    if not isinstance(myport, int) or myport <= 0:
-        print("Error: Invalid port value. Cannot open socket.")
-        return  # Avoid continuing with invalid data
-
-    sel = selectors.DefaultSelector()
-
-    lsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    lsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    try:
-        lsock.bind((IPAddr, myport))
-    except Exception as e:
-        print(f"Error: Failed to bind socket on port {myport}. {e}")
-        return
-
-    lsock.listen()
-    print(f'Listening on {(IPAddr, myport)}')
-    lsock.setblocking(False)
-    sel.register(lsock, selectors.EVENT_READ, data=None)
-
-    try:
-        while True:
-            events = sel.select(timeout=None)
-            for key, mask in events:
-                if key.data is None:
-                    accept_wrapper(sel, key.fileobj)
-                else:
-                    message = key.data
-                    try:
-                        message.process_events(mask)
-                        response = bot.request(message.request)
-                        message.response = response
-                        message.set_selector_events_mask('w')
-                    except Exception:
-                        print(
-                            f'Main: Error: Exception for {message.ipaddr}:\n'
-                            f'{traceback.format_exc()}'
-                        )
-                        message._close()
-    except KeyboardInterrupt:
-        print('Caught keyboard interrupt, exiting')
-    finally:
-        sel.close()
-
-
-def process_action(message, services):
-    """
-    process the action from the client
-    :param message: the message object
-    :param services: the services object
-    """
-
-    if message.event == 'READ':
-        action = message.request['action']
-        # TODO call the methods on the Services-object depending on the action
-        if action == 'register':
-            message.response = services.register(message.request['type'], message.request['ip'],
-                                                 message.request['port'])
-        elif action == 'heartbeat':
-            message.response = services.heartbeat(message.request['uuid'])
-        elif action == 'query':
-            message.response = services.query(message.request['type'])
-
-        message.set_selector_events_mask('w')
-
-
-def accept_wrapper(sel, sock):
-    conn, addr = sock.accept()
-    print(f'Accepted connection from {addr}')
-    conn.setblocking(False)
-    message = ServerMessage(sel, conn, addr)
-    sel.register(conn, selectors.EVENT_READ, data=message)
-
-
-
-""" Provides the Message class for the server and client classes to inherit from. """
 
 if __name__ == '__main__':
     main()
