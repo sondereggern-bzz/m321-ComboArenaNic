@@ -14,7 +14,7 @@ import threading
 
 
 
-CLOWDERHOST = '127.0.0.1'#"185.104.16.34"
+CLOWDERHOST = "127.0.0.1"#"185.104.16.34"
 PORT = 65432
 
 
@@ -492,9 +492,6 @@ def start_connection(sel, host, port, request):
     sel.register(sock, events, data=message)
 
 
-# ========== ========== Bot ========== ==========
-
-
 class SolidSnakeBot:
     """
     This is a helper class to run the bot in the local environment.
@@ -573,7 +570,7 @@ class SolidSnake:
         self._strategy.see_the_future(top_three)
 
 
-def register(local_ip, bot):
+def get_port(local_ip, bot):
     """
     register the bot with the discovery service
     """
@@ -583,13 +580,13 @@ def register(local_ip, bot):
     try:
         port = int(message.response.decode("utf-8").strip())
         print(f"Success! Port: {port}.")
-        return port
+        return int(port)
     except Exception as e:
         print(f"Failed! Response: {e}")
         return None
 
 
-def send_heartbeat(bot):
+def swish(bot):
     """
     send a heartbeat to the discovery service
     """
@@ -600,10 +597,10 @@ def send_heartbeat(bot):
             print(f"Heartbeat sent for {bot.name}")
         except Exception as e:
             print(f"Failed to send heartbeat: {e}")
-        time.sleep(30)
+        time.sleep(60)
 
 
-def open_up_port(local_ip, port, bot):
+def open_port(local_ip, port, bot):
     """
     main entry point for the discovery service
     """
@@ -695,15 +692,15 @@ def main():
     bot = SolidSnakeBot("SnakeBot")
 
     try:
-        port = register(local_ip, bot)
+        port = get_port(local_ip, bot)
         if port is None:
             return
 
-        heart = threading.Thread(target=send_heartbeat, args=(bot,))
-        heart.daemon = True
-        heart.start()
+        sending_heartbeat = threading.Thread(target=swish, args=(bot,))
+        sending_heartbeat.daemon = True
+        sending_heartbeat.start()
 
-        open_up_port(local_ip, int(port), bot)
+        open_port(local_ip, port, bot)
     except KeyboardInterrupt:
         print("Caught keyboard interrupt, exiting")
     except Exception as e:
